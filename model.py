@@ -138,8 +138,6 @@ class Model():
 
     def loss_layer(self):
         with tf.variable_scope("loss_layer"):
-            small = -1000.0
-
             logits = self.logits
             targets = self.targets
 
