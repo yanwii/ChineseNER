@@ -7,13 +7,14 @@ import sys
 
 import numpy as np
 import tensorflow as tf
+from bert_base.bert import modeling, optimization, tokenization
+from bert_base.train import tf_metrics
 from tensorflow.contrib import rnn
 from tensorflow.contrib.crf import crf_log_likelihood, viterbi_decode
 from tensorflow.contrib.layers.python.layers import initializers
 
-from data_utils import DataBatch
 from utils import f1_score, format_result, get_tags, new_f1_score
-
+from helper import ARGS
 
 class Model():
     def __init__(self):
@@ -25,14 +26,19 @@ class Model():
         self.best_dev_f1 = tf.Variable(0.0, trainable=False)
         self.checkpoint_dir = "./model/"
         self.checkpoint_path = "./model/ner.org.ckpt"
-
         self.initializer = initializers.xavier_initializer()
+
+        self.is_training = True if ARGS.mode=="train" else False
 
     def __creat_model(self):
 
-        self._init_placeholder()
         # embbeding layer
-        self.embedding_layer()
+        if ARGS.bert:
+            self._init_bert_placeholder()
+            self.bert_layer()
+        else:
+            self._init_placeholder()
+            self.embedding_layer()
 
         # bi-Lstm layer
         self.biLSTM_layer()
@@ -71,6 +77,36 @@ class Model():
         self.length = tf.cast(length, tf.int32)
         self.batch_size = tf.shape(self.inputs)[0]
         self.nums_steps = tf.shape(self.inputs)[-1]
+
+    def _init_bert_placeholder(self):
+        self.input_ids = tf.placeholder(
+            dtype=tf.int32,
+            shape=[None, None],
+            name="bert_input_ids"
+        )
+        self.input_mask = tf.placeholder(
+            dtype=tf.int32,
+            shape=[None, None],
+            name="bert_input_mask"
+        )
+        self.segment_ids = tf.placeholder(
+            dtype=tf.int32,
+            shape=[None, None],
+            name="bert_segment_ids"
+        )
+
+    def bert_layer(self):
+        bert_config = modeling.BertConfig.from_json_file(ARGS.bert_config)
+
+        model = modeling.BertModel(
+            config=bert_config,
+            is_training=self.is_training,
+            input_ids=self.input_ids,
+            input_mask=self.input_mask,
+            token_type_ids=self.segment_ids,
+            use_one_hot_embeddings=False
+        )
+        self.model_inputs = model.get_sequence_output()
 
     def embedding_layer(self):
         with tf.variable_scope("embedding_layer") as scope:
@@ -178,7 +214,15 @@ class Model():
         return global_steps, loss, logits, acc, length
 
     def train(self):
-        self.train_data = DataBatch(data_type='train', batch_size=10)
+        if ARGS.bert:
+            from bert_data_utils import BertDataUtils
+            tokenizer = tokenization.FullTokenizer(
+                vocab_file=ARGS.vocab_dir, 
+            )
+            self.train_data = BertDataUtils()
+        else:
+            from data_utils import DataBatch
+            self.train_data = DataBatch(data_type='train', batch_size=10)
 
         data = {
             "batch_size": self.train_data.batch_size,

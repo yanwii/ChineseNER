@@ -1,0 +1,4 @@
+{
+    "python.linting.pylintEnabled": false,
+    "python.pythonPath": "/opt/local/anaconda3/bin/python"
+}
