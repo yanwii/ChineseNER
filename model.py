@@ -219,7 +219,7 @@ class Model():
             tokenizer = tokenization.FullTokenizer(
                 vocab_file=ARGS.vocab_dir, 
             )
-            self.train_data = BertDataUtils()
+            self.train_data = BertDataUtils(tokenizer)
         else:
             from data_utils import DataBatch
             self.train_data = DataBatch(data_type='train', batch_size=10)

@@ -15,7 +15,7 @@ class BertDataUtils(object):
         # load data
         # add vocab
         # covert to one-hot
-        sentence = []
+        ntokens = ["[CLS]"]
         target = []
         train_nums = 0
         with open(self.data_path) as f:
@@ -28,14 +28,16 @@ class BertDataUtils(object):
                     word = "。"
                     tag = "O" 
                     if line == "end":    
-                        converted_data = self.convert_tag([sentence, target])
+                        ntokens.append("[SEP]")
+                        inputs_ids = self.tokenizer.convert_tokens_to_ids(ntokens)
+                        segment_ids = [0] * len(inputs_ids)
+                        
+                        converted_data = self.convert_tag([ntokens, target])
                         self.data.append(converted_data)
-                        sentence = []
+                        ntokens = ["[CLS]"]
                         target = []
                     continue
-                if word not in self.vocab and self.data_type == "train":
-                    self.vocab[word] = max(self.vocab.values()) + 1 
-                sentence.append(self.vocab.get(word, 0)) 
+                ntokens.append(word) 
                 target.append(tag)
         self.input_size = len(self.vocab.values())
         print("-"*50)
