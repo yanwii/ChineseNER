@@ -29,7 +29,7 @@ class BertDataUtils(object):
         # add vocab
         # covert to one-hot
         ntokens = ["[CLS]"]
-        target = ["O"]
+        target = ["[CLS]"]
         train_nums = 0
         with open(self.data_path) as f:
             for line in f:
@@ -39,10 +39,10 @@ class BertDataUtils(object):
                     word, tag = line.split()
                 except Exception as error:
                     word = "。"
-                    tag = "O" 
+                    tag = "O"
                     if line == "end":    
                         ntokens.append("[SEP]")
-                        target.append("O")
+                        target.append("[SEP]")
                         inputs_ids = self.tokenizer.convert_tokens_to_ids(ntokens)
                         segment_ids = [0] * len(inputs_ids)
                         input_mask = [1] * len(inputs_ids)
@@ -51,7 +51,7 @@ class BertDataUtils(object):
                         data = [ntokens, tag_ids, inputs_ids, segment_ids, input_mask]
                         self.data.append(data)
                         ntokens = ["[CLS]"]
-                        target = ["O"]
+                        target = ["[CLS]"]
                     continue
                 ntokens.append(word)
                 target.append(tag)
@@ -94,7 +94,6 @@ class BertDataUtils(object):
             padded_data.append(
                 [ntokens, tag_ids, inputs_ids, segment_ids, input_mask]
             )
-            import pdb; pdb.set_trace()
         return padded_data
     
     def iteration(self):
