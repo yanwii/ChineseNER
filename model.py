@@ -9,7 +9,7 @@ import sys
 import numpy as np
 import tensorflow as tf
 from bert_base.bert import modeling, optimization, tokenization
-from bert_base.bert.optimization import AdamWeightDecayOptimizer
+from bert_base.bert.optimization import create_optimizer
 from bert_base.train import tf_metrics
 from tensorflow.contrib import rnn
 from tensorflow.contrib.crf import crf_log_likelihood, viterbi_decode
@@ -23,7 +23,7 @@ class Model():
         self.nums_tags = 4
         self.lstm_dim = 128
         self.embedding_size = 50
-        self.max_epoch = 10000
+        self.max_epoch = 10
         self.global_steps = tf.Variable(0, trainable=False)
         self.best_dev_f1 = tf.Variable(0.0, trainable=False)
         self.checkpoint_dir = "./model/"
@@ -52,7 +52,10 @@ class Model():
         self.loss_layer()
 
         # optimizer_layer
-        self.optimizer_layer()
+        if ARGS.bert:
+            self.bert_optimizer_layer()
+        else:
+            self.optimizer_layer()
 
     def _init_placeholder(self):
 
@@ -212,30 +215,35 @@ class Model():
             )
             self.loss = tf.reduce_mean(-log_likelihood)
 
-    def optimizer_layer(self):
-        # with tf.variable_scope("optimizer"):
-        #     self.train_op = tf.train.AdamOptimizer().minimize(
-        #         self.loss, global_step=self.global_steps)
-
+    def bert_optimizer_layer(self):
         correct_prediction = tf.equal(
             tf.argmax(self.logits, 2), tf.cast(self.targets, tf.int64))
         self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-        optimizer = AdamWeightDecayOptimizer(
-            learning_rate=0.01,
-            weight_decay_rate=0.01,
-            beta_1=0.9,
-            beta_2=0.999,
-            epsilon=1e-6,
-            exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"])
-        tvars = tf.trainable_variables()
-        grads = tf.gradients(self.loss, tvars)
-
-        # This is how the model was pre-trained.
-        (grads, _) = tf.clip_by_global_norm(grads, clip_norm=1.0)
-
-        self.train_op = optimizer.apply_gradients(
-            zip(grads, tvars), global_step=self.global_steps)
+        num_train_steps = int(
+            self.train_length / self.train_data.batch_size * self.max_epoch)
+        num_warmup_steps = int(num_train_steps * 0.1)
+        self.train_op = create_optimizer(
+            self.loss, 5e-5, num_train_steps, num_warmup_steps, False
+        )
         self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=5)
+
+    def optimizer_layer(self):
+        with tf.variable_scope("optimizer"):
+            optimizer = tf.train.AdamOptimizer()
+
+            correct_prediction = tf.equal(
+                tf.argmax(self.logits, 2), tf.cast(self.targets, tf.int64))
+            self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+            
+            tvars = tf.trainable_variables()
+            grads = tf.gradients(self.loss, tvars)
+
+            # This is how the model was pre-trained.
+            (grads, _) = tf.clip_by_global_norm(grads, clip_norm=1.0)
+
+            self.train_op = optimizer.apply_gradients(
+                zip(grads, tvars), global_step=self.global_steps)
+            self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=5)
 
 
     def step(self, sess, batch):

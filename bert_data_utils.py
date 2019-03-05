@@ -11,7 +11,7 @@ class BertDataUtils(object):
         self.tokenizer = tokenizer
         self.data = []
         self.batch_data = []
-        self.tag_map = { "O":1 }
+        self.tag_map = { "O":1, "unk":0 }
         # self.tag_map = {"O":0 }
         
         self.batch_size = batch_size
@@ -60,7 +60,7 @@ class BertDataUtils(object):
         tag_ids = []
         for tag in tag_list:
             if tag not in self.tag_map:
-                self.tag_map[tag] = len(self.tag_map.keys()) + 1
+                self.tag_map[tag] = len(self.tag_map.keys())
             tag_ids.append(self.tag_map.get(tag, 0))
         return tag_ids
 
