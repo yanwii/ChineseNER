@@ -10,8 +10,10 @@ class BertDataUtils(object):
     def __init__(self, tokenizer, entry="train", batch_size=1):
         self.tokenizer = tokenizer
         self.data = []
+        self.input_size = 0
+        self.vocab = {}
         self.batch_data = []
-        self.tag_map = { "O":1, "unk":0 }
+        self.tag_map = { "O":0 }
         # self.tag_map = {"O":0 }
         
         self.batch_size = batch_size

@@ -24,6 +24,7 @@ class Model():
         self.lstm_dim = 128
         self.embedding_size = 50
         self.max_epoch = 10
+        self.learning_rate = ARGS.learning_rate
         self.global_steps = tf.Variable(0, trainable=False)
         self.best_dev_f1 = tf.Variable(0.0, trainable=False)
         self.checkpoint_dir = "./model/"
@@ -35,7 +36,7 @@ class Model():
     def __creat_model(self):
 
         # embbeding layer
-        if ARGS.bert:
+        if ARGS.mode == "bert":
             self._init_bert_placeholder()
             self.bert_layer()
         else:
@@ -52,7 +53,7 @@ class Model():
         self.loss_layer()
 
         # optimizer_layer
-        if ARGS.bert:
+        if ARGS.mode == "bert":
             self.bert_optimizer_layer()
         else:
             self.optimizer_layer()
@@ -113,7 +114,7 @@ class Model():
         used = tf.sign(tf.abs(self.input_ids))
         length = tf.reduce_sum(used, reduction_indices=1)
         self.length = tf.cast(length, tf.int32)
-        self.batch_size = tf.shape(self.input_ids)[0]
+        # self.batch_size = tf.shape(self.input_ids)[0]
         self.nums_steps = tf.shape(self.input_ids)[-1]
 
     def bert_layer(self):
@@ -125,7 +126,7 @@ class Model():
             input_ids=self.input_ids,
             input_mask=self.input_mask,
             token_type_ids=self.segment_ids,
-            use_one_hot_embeddings=True
+            use_one_hot_embeddings=False
         )
         self.embedded = model.get_sequence_output()
         self.model_inputs = tf.nn.dropout(
@@ -220,10 +221,10 @@ class Model():
             tf.argmax(self.logits, 2), tf.cast(self.targets, tf.int64))
         self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
         num_train_steps = int(
-            self.train_length / self.train_data.batch_size * self.max_epoch)
+            self.train_length / self.batch_size * self.max_epoch)
         num_warmup_steps = int(num_train_steps * 0.1)
         self.train_op = create_optimizer(
-            self.loss, 5e-5, num_train_steps, num_warmup_steps, False
+            self.loss, self.learning_rate, num_train_steps, num_warmup_steps, False
         )
         self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=5)
 
@@ -271,32 +272,35 @@ class Model():
         return global_steps, loss, logits, acc, length
 
     def train(self):
-        if ARGS.bert:
+        if ARGS.mode == "bert":
             from bert_data_utils import BertDataUtils
             tokenizer = tokenization.FullTokenizer(
                 vocab_file=ARGS.vocab_dir, 
             )
-            self.train_data = BertDataUtils(tokenizer, batch_size=1)
-            self.dev_data = BertDataUtils(tokenizer, batch_size=20)
+            self.train_data = BertDataUtils(tokenizer, batch_size=5)
+            self.dev_data = BertDataUtils(tokenizer, batch_size=10)
             self.dev_batch = self.dev_data.iteration()
         else:
             from data_utils import DataBatch
-            self.train_data = DataBatch(data_type='train', batch_size=1)
+            self.train_data = DataBatch(data_type='train', batch_size=5)
 
-            data = {
-                "batch_size": self.train_data.batch_size,
-                "input_size": self.train_data.input_size,
-                "vocab": self.train_data.vocab,
-                "tag_map": self.train_data.tag_map,
-            }
-
-            f = open("data/data_map.pkl", "wb")
-            cPickle.dump(data, f)
-            f.close()
+            
             self.vocab = self.train_data.vocab
             self.input_size = len(self.vocab.values()) + 1
             self.dev_data = DataBatch(data_type='dev', batch_size=300)
             self.dev_batch = self.dev_data.iteration()
+        
+        data = {
+            "batch_size": self.train_data.batch_size,
+            "input_size": self.train_data.input_size,
+            "vocab": self.train_data.vocab,
+            "tag_map": self.train_data.tag_map,
+        }
+
+        f = open("data/data_map.pkl", "wb")
+        cPickle.dump(data, f)
+        f.close()
+        self.batch_size = self.train_data.batch_size
         self.nums_tags = len(self.train_data.tag_map.keys())
         self.tag_map = self.train_data.tag_map
         self.train_length = len(self.train_data.data)
@@ -336,7 +340,7 @@ class Model():
                     steps = 0
                     for batch in self.train_data.get_batch():
                         steps += 1
-                        if ARGS.bert:
+                        if ARGS.mode == "bert":
                             global_steps, loss, logits, acc, length = self.bert_step(
                                 sess, batch
                             )
@@ -347,7 +351,7 @@ class Model():
                         if steps % 1 == 0:
                             print("[->] step {}/{}\tloss {:.2f}\tacc {:.2f}".format(
                                 steps, len(self.train_data.batch_data), loss, acc))
-                    if ARGS.bert:
+                    if ARGS.mode == "bert":
                         self.bert_evaluate(sess, "ORG")
                         self.bert_evaluate(sess, "PER")
                     else:
@@ -427,14 +431,37 @@ class Model():
         }
         return feed
 
+    def prepare_bert_pred_data(self, text):
+        tokens = list(text)
+        input_ids = self.tokenizer.convert_tokens_to_ids(tokens)
+        input_mask = [1] * len(input_ids)
+        segment_ids = [0] * len(input_ids)
+        
+        feed = {
+            self.input_ids: [input_ids],
+            self.segment_ids: [segment_ids],
+            self.input_mask: [input_mask],
+            self.dropout: 1
+        }
+        return feed
+
+
     def predict(self):
         f = open("data/data_map.pkl", "rb")
         maps = cPickle.load(f)
         f.close()
-        self.vocab = maps.get("vocab", {})
+        self.batch_size = 1
+        if ARGS.mode == "bert":
+            self.tokenizer = tokenization.FullTokenizer(
+                vocab_file=ARGS.vocab_dir, 
+            )
+            self.train_length = 10
+        else:
+            self.vocab = maps.get("vocab", {})
+            self.input_size = maps.get("input_size", 10000) + 1
+
         self.tag_map = maps.get("tag_map", {})
         self.nums_tags = len(self.tag_map.values())
-        self.input_size = maps.get("input_size", 10000) + 1
         self.__creat_model()
         with tf.Session() as sess:
             ckpt = tf.train.get_checkpoint_state(self.checkpoint_dir)
@@ -448,11 +475,16 @@ class Model():
             trans = self.trans.eval()
             while True:
                 text = input(" > ")
-                feed = self.prepare_pred_data(text)
+
+                if ARGS.mode == "bert":
+                    feed = self.prepare_bert_pred_data(text)
+                else:
+                    feed = self.prepare_pred_data(text)
 
                 logits, length = sess.run(
                     [self.logits, self.length], feed_dict=feed)
                 paths = self.decode(logits, length, trans)
+                print(paths)
                 org = get_tags(paths[0], "ORG", self.tag_map)
                 org_entity = format_result(org, text, "ORG")
                 per = get_tags(paths[0], "PER", self.tag_map)
